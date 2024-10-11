@@ -1,0 +1,178 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Test</title>
+</head>
+<body>
+<h1>Ollama Test</h1>
+
+<div role="status" id="status"></div>
+
+<div class="chat">
+<br><label>Message: <input type="text" id="message" value="Why is the sky blue?"></label>
+<br><button id="run" accesskey="r">Go</button>
+<button id="reset" accesskey="x">Reset conversation</button>
+</div>
+
+<div class="prompt">
+<label>System message: <input type="text" id="system-message"></label>
+<!--<label>prompt: <input id="prompt"></label>-->
+</div>
+<label>Stream <input type="checkbox" id="stream" checked></label>
+
+<output id="log"></output>
+
+<script>
+const granularity = 40;
+let responses = [];
+let conversation = [];
+let conversationCount = 1;
+
+
+document.querySelector("#run").addEventListener("click", e => run(get("message"), get("system-message"), conversation, $("#stream").checked));
+document.querySelector("#stream").addEventListener("change", e => {
+statusMessage(`streaming ${stream? enabled : disabled}.`);
+});
+document.querySelector("#reset").addEventListener("click", e => {
+if (conversation.length === 0) return;
+conversation = [];
+conversationCount += 1;
+document.querySelector("#log").insertAdjacentHTML("beforeEnd", `<h2>Conversation ${conversationCount}</h2>`);
+document.querySelector("#message").focus();
+});
+document.querySelector(".chat #message").focus();
+
+console.debug("start:");
+setTimeout(() => {
+document.querySelector("#log").insertAdjacentHTML("beforeEnd", `<h2>Conversation ${conversationCount}</h2>`);
+statusMessage("Ready.");
+}, 100);
+
+async function run(userMessage, systemMessage, conversation, stream = true) {
+if (not(userMessage)) {
+statusMessage("No input.");
+return;
+} // if
+
+const messages = conversation.slice(0);
+messages.push({role: "user", content: userMessage});
+if (get("system-message")) messages.unshift({role: "system", content: get("#system-message")});
+
+
+
+
+
+const body = {
+model: "llama3.2",
+//options: {num_threads: 8},
+stream, messages,
+};
+
+console.debug(body);
+
+
+try {
+statusMessage("sending request:");
+const res = await fetch("http://localhost:11434/api/chat", {
+method: "POST",
+body: JSON.stringify(body)
+});
+
+console.debug("res: ", res);
+statusMessage(`status: ${res.status}`);
+
+let response = "";
+let count = 0;
+let data = "";
+let errorCount = 0;
+const decoder = new TextDecoder();
+
+for await (const chunk of res.body) {
+const text = decoder.decode(chunk);
+
+try {
+data = JSON.parse(text);
+} catch (e) {
+console.error(`${e}\n\n${text}\n`);
+statusMessage(`${errorCount}: JSON parse error; see console output.`);
+} // try
+
+if (data.message) response += data.message.content;
+if (data.done) break;
+
+count += 1;
+if (count % granularity === 0) statusMessage(`${count} tokens generated.`);
+} // for
+
+response = response.trim();
+//console.log(data);
+console.debug(response);
+
+if (response.length > 0) {
+conversation.push({role: "user", content: userMessage});
+conversation.push({role: "assistant", content: response});
+logResponse(response, userMessage);
+
+} else {
+statusMessage(`${data.done_reason}: no response.`);
+} // if
+
+
+} catch (e) {
+statusMessage(`Error: ${e}.`);
+console.error(`error communicating with server; ${e.message}`);
+} // try
+} // run
+
+function createMessage (role, id) {
+if (not(id)) id = role;
+const content = get(id) || undefined;
+return content? {role, content} : null;
+} // createMessage
+
+function get (id) {
+return document.querySelector(`#${id}`)?.value;
+} // get
+
+
+function logResponse (response, userMessage) {
+document.querySelector("#log").insertAdjacentHTML("beforeEnd",
+`<hr><pre class="response">
+<h3 class="message">${userMessage}</h3>
+<div class="response">${response}</div>
+</div>
+`);
+} // logResponse
+
+function log (text) {
+document.querySelector("#log").appendChild(
+document.createElement("p").textContent = text
+);
+} // log
+
+function statusMessage (text) {
+document.querySelector("#status").textContent = text;
+} // statusMessage
+
+function $ (s, c = document) {
+return c.querySelector(s);
+} // $
+
+function $$ (s, func, c = document) {
+const identity = (x => x);
+if (not(func)) func = identity;
+if (func instanceof HTMLElement) {
+c = func;
+func = identity;
+} // if
+
+c.querySelectorAll(s).forEach(func);
+} // $$
+
+
+function not (x) {return !x;}
+</script>
+
+</body>
+</html>
