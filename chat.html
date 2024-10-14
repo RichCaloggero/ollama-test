@@ -23,6 +23,10 @@
 <!--<label>prompt: <input id="prompt"></label>-->
 </div>
 <label>Stream <input type="checkbox" id="stream" checked></label>
+<select id="mode">
+<option>beep</option>
+<option>speech</option>
+</select>
 
 <output id="log"></output>
 
@@ -35,14 +39,15 @@ let conversationCount = 1;
 
 document.querySelector("#run").addEventListener("click", e => run(get("message"), get("system-message"), conversation, $("#stream").checked));
 document.querySelector("#stream").addEventListener("change", e => {
-statusMessage(`streaming ${stream? enabled : disabled}.`);
+statusMessage(`streaming ${$("#stream").checked? "enabled" : "disabled"}.`);
 });
 document.querySelector("#reset").addEventListener("click", e => {
 if (conversation.length === 0) return;
 conversation = [];
 conversationCount += 1;
 document.querySelector("#log").insertAdjacentHTML("beforeEnd", `<h2>Conversation ${conversationCount}</h2>`);
-document.querySelector("#message").focus();
+$("#message").value = "";
+$("#message").focus();
 });
 document.querySelector(".chat #message").focus();
 
@@ -64,8 +69,6 @@ if (get("system-message")) messages.unshift({role: "system", content: get("syste
 
 
 
-
-
 const body = {
 model: "llama3.2",
 options: {
@@ -73,7 +76,8 @@ num_threads: 64,
 temperature: Number(get("temperature")),
 seed: Number(get("seed"))
 },
-stream, messages,
+stream: $("#stream").checked,
+messages,
 };
 
 
@@ -82,10 +86,14 @@ console.debug(body);
 
 try {
 statusMessage("sending request:");
-const res = await fetch("http://localhost:11434/api/chat", {
+let res = fetch("http://localhost:11434/api/chat", {
 method: "POST",
 body: JSON.stringify(body)
 });
+
+let handle = null;
+if ($("#stream").checked === false) handle = setInterval(beep, 4000);
+res = await res;
 
 console.debug("res: ", res);
 statusMessage(`status: ${res.status}`);
@@ -113,11 +121,15 @@ if (object.message) response += object.message.content;
 if (object.done) break;
 
 count += 1;
-if (count % granularity === 0) statusMessage(`${count} tokens generated.`);
+if (count % granularity === 0) {
+if (get("mode") === "speech") statusMessage(`${count} tokens generated.`);
+else beep();
+} // if
 } // for
 
 if (object.done) break;
 } // for
+if ($("#stream").checked === false) clearInterval(handle);
 
 response = response.trim();
 //console.log(data);
@@ -138,6 +150,19 @@ statusMessage(`Error: ${e}.`);
 console.error(`error communicating with server; ${e.message}`);
 } // try
 } // run
+
+
+function beep (duration = 0.003, frequency = 440) {
+const c = new AudioContext()
+c.resume();
+const o = c.createOscillator();
+const g = c.createGain();
+g.gain.value = 0.3;
+o.connect(g).connect(c.destination);
+o.frequency = frequency;
+o.start();
+o.stop(c.currentTime + duration);
+} // beep
 
 function createMessage (role, id) {
 if (not(id)) id = role;
